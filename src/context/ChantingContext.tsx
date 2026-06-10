@@ -15,6 +15,7 @@ interface ChantingContextType {
   dailyGoal: number;
   hapticEnabled: boolean;
   theme: string;
+  notificationEnabled: boolean;
   isLoading: boolean;
   
   // Actions
@@ -28,6 +29,7 @@ interface ChantingContextType {
   setGoal: (goal: number) => void;
   setHaptic: (enabled: boolean) => void;
   setThemePreference: (theme: string) => void;
+  setNotificationEnabled: (enabled: boolean) => Promise<void>;
   resetAllUserData: () => Promise<void>;
   
   // Data Import/Export
@@ -58,6 +60,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [dailyGoal, setDailyGoal] = useState(16);
   const [hapticEnabled, setHapticEnabled] = useState(true);
   const [theme, setTheme] = useState('dark');
+  const [notificationEnabled, setNotificationEnabledState] = useState(true);
   
   const [currentDateKey, setCurrentDateKey] = useState(getTodayDateKey());
   
@@ -170,6 +173,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setHapticEnabled(settings.hapticEnabled);
         setCurrentSpeed(settings.speedPreference);
         setTheme(settings.theme);
+        setNotificationEnabledState(settings.notificationEnabled);
 
         // Load active daily stats to see if we completed rounds today already
         const todayKey = getTodayDateKey();
@@ -312,6 +316,122 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   }, [currentBead, roundCount, currentSpeed, isPlaying, isLoading]);
 
+  // Helper to show/update PWA notification progress bar
+  const updateNotification = async (
+    playing: boolean,
+    phase: ChantingPhase,
+    bead: number,
+    rounds: number,
+    enabled: boolean
+  ) => {
+    if (!enabled) return;
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      
+      let bodyText = `Round: ${rounds} • Bead: ${bead}/108`;
+      if (phase === 'pranam1') {
+        bodyText = `Opening Pranam Mantra • Round: ${rounds}`;
+      } else if (phase === 'pranam2') {
+        bodyText = `Closing Pranam Mantra • Round: ${rounds}`;
+      } else if (phase === 'chime') {
+        bodyText = `Round Finished! Bell Chime`;
+      }
+
+      await reg.showNotification('Japa Progress Tracker', {
+        body: bodyText,
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        tag: 'chanting-progress',
+        silent: true,
+        renotify: false,
+        actions: [
+          {
+            action: 'play-pause',
+            title: playing ? 'Pause ⏸️' : 'Play ▶️'
+          }
+        ]
+      } as any);
+    } catch (err) {
+      console.warn('Failed to show progress notification:', err);
+    }
+  };
+
+  // Helper to clear progress notification
+  const clearNotification = async () => {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const notifications = await reg.getNotifications({ tag: 'chanting-progress' });
+      notifications.forEach(n => n.close());
+    } catch (err) {
+      console.warn('Failed to clear notification:', err);
+    }
+  };
+
+  // Listen for actions sent from the Service Worker notification
+  useEffect(() => {
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'notification-action') {
+        const action = event.data.action;
+        if (action === 'play-pause') {
+          if (playbackEngineRef.current) {
+            if (playbackEngineRef.current.isPlaying) {
+              playbackEngineRef.current.pause();
+            } else {
+              playbackEngineRef.current.resume();
+            }
+          }
+        }
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
+
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
+    };
+  }, []);
+
+  // Sync notification progress with player state
+  useEffect(() => {
+    if (isLoading) return;
+    if (notificationEnabled) {
+      updateNotification(isPlaying, currentPhase, currentBead, roundCount, notificationEnabled);
+    } else {
+      clearNotification();
+    }
+  }, [isPlaying, currentPhase, currentBead, roundCount, notificationEnabled, isLoading]);
+
+  // Prompt for notification permission if default but enabled in settings
+  useEffect(() => {
+    const checkPermission = async () => {
+      if (notificationEnabled && 'Notification' in window && Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch (e) {
+          console.warn('Failed to request notification permission:', e);
+        }
+      }
+    };
+    if (!isLoading) {
+      checkPermission();
+    }
+  }, [notificationEnabled, isLoading]);
+
+  // Close notification on unmount/cleanup
+  useEffect(() => {
+    return () => {
+      clearNotification();
+    };
+  }, []);
+
   // Actions
   const togglePlay = () => {
     if (!playbackEngineRef.current) return;
@@ -388,7 +508,28 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await db.saveSettings({ ...settings, theme: themePref });
   };
 
+  const setNotificationEnabled = async (enabled: boolean) => {
+    if (enabled && 'Notification' in window && Notification.permission !== 'granted') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setNotificationEnabledState(false);
+        const settings = await db.getSettings();
+        await db.saveSettings({ ...settings, notificationEnabled: false });
+        return;
+      }
+    }
+    
+    setNotificationEnabledState(enabled);
+    const settings = await db.getSettings();
+    await db.saveSettings({ ...settings, notificationEnabled: enabled });
+    
+    if (!enabled) {
+      clearNotification();
+    }
+  };
+
   const resetAllUserData = async () => {
+    clearNotification();
     if (playbackEngineRef.current) {
       playbackEngineRef.current.pause();
       playbackEngineRef.current.destroy();
@@ -405,6 +546,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setDailyGoal(16);
     setHapticEnabled(true);
     setTheme('dark');
+    setNotificationEnabledState(true);
   };
 
   const exportData = async () => {
@@ -420,6 +562,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setHapticEnabled(settings.hapticEnabled);
       setCurrentSpeed(settings.speedPreference);
       setTheme(settings.theme);
+      setNotificationEnabledState(settings.notificationEnabled);
 
       const todayKey = getTodayDateKey();
       const todayStat = await db.getStats(todayKey);
@@ -471,6 +614,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         dailyGoal,
         hapticEnabled,
         theme,
+        notificationEnabled,
         isLoading,
         
         togglePlay,
@@ -483,6 +627,7 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setGoal,
         setHaptic,
         setThemePreference,
+        setNotificationEnabled,
         resetAllUserData,
         
         exportData,

@@ -1,15 +1,17 @@
 import React, { useState, useRef } from 'react';
 import { useChanting } from '../context/ChantingContext';
-import { Download, Upload, Trash2, Smartphone, SunMoon } from 'lucide-react';
+import { Download, Upload, Trash2, Smartphone, SunMoon, Bell } from 'lucide-react';
 
 export const SettingsPanel: React.FC = () => {
   const {
     dailyGoal,
     hapticEnabled,
     theme,
+    notificationEnabled,
     setGoal,
     setHaptic,
     setThemePreference,
+    setNotificationEnabled,
     resetAllUserData,
     exportData,
     importData,
@@ -141,6 +143,28 @@ export const SettingsPanel: React.FC = () => {
               type="checkbox"
               checked={hapticEnabled}
               onChange={(e) => setHaptic(e.target.checked)}
+            />
+            <span className="switch-slider"></span>
+          </label>
+        </div>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)' }} />
+
+        {/* Lock-Screen Progress Bar Toggle */}
+        <div className="settings-row">
+          <div className="settings-info" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
+            <Bell size={18} strokeWidth={1.5} color="var(--accent-saffron)" />
+            <div className="settings-info">
+              <span className="settings-title">Lock-Screen Progress Bar</span>
+              <span className="settings-desc">Show notification with round, bead, and play controls</span>
+            </div>
+          </div>
+          
+          <label className="switch-control">
+            <input
+              type="checkbox"
+              checked={notificationEnabled}
+              onChange={(e) => setNotificationEnabled(e.target.checked)}
             />
             <span className="switch-slider"></span>
           </label>

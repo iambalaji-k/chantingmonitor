@@ -6,6 +6,7 @@ export interface Settings {
   hapticEnabled: boolean;
   speedPreference: number;
   theme: string;
+  notificationEnabled: boolean;
 }
 
 export interface ChantingSession {
@@ -57,6 +58,7 @@ export const db = {
       hapticEnabled: true,
       speedPreference: 5,
       theme: 'dark',
+      notificationEnabled: true,
     };
   },
 
