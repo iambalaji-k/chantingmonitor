@@ -13,6 +13,8 @@ export class PlaybackEngine {
   private currentSourceNode: AudioBufferSourceNode | null = null;
   private pausedOffset: number = 0;
   private startTime: number = 0;
+  private dummyAudio: HTMLAudioElement | null = null;
+  private mediaStreamDest: MediaStreamAudioDestinationNode | null = null;
   
   private queue: QueueItem[] = [];
   private currentIndex: number = 0;
@@ -31,8 +33,17 @@ export class PlaybackEngine {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioContextClass();
+      
+      // Create a MediaStream destination
+      this.mediaStreamDest = this.audioContext.createMediaStreamDestination();
+      
+      // Route the MediaStream to an HTMLAudioElement
+      this.dummyAudio = new Audio();
+      this.dummyAudio.crossOrigin = 'anonymous';
+      this.dummyAudio.srcObject = this.mediaStreamDest.stream;
+      this.dummyAudio.preload = 'auto';
     } catch (e) {
-      console.warn('Web Audio API not supported:', e);
+      console.warn('Web Audio API / MediaStream not supported:', e);
     }
   }
 
@@ -145,7 +156,11 @@ export class PlaybackEngine {
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.audioContext.destination);
+    if (this.mediaStreamDest) {
+      source.connect(this.mediaStreamDest);
+    } else {
+      source.connect(this.audioContext.destination);
+    }
 
     this.currentSourceNode = source;
     this.pausedOffset = offset;
@@ -161,6 +176,10 @@ export class PlaybackEngine {
     this.isPlaying = true;
     this.isUserPaused = false;
     
+    if (this.dummyAudio && this.dummyAudio.paused) {
+      this.dummyAudio.play().catch(err => console.warn('Failed to play dummy audio:', err));
+    }
+
     this.updateMediaSessionState();
     this.onPlayPause(true);
     this.onStateChange({ phase: type, bead: bead, roundIncrement: false });
@@ -243,6 +262,10 @@ export class PlaybackEngine {
       this.pausedOffset = elapsed;
       this.stopCurrentNode();
     }
+
+    if (this.dummyAudio) {
+      this.dummyAudio.pause();
+    }
     
     this.onPlayPause(false);
     this.updateMediaSessionState();
@@ -256,6 +279,10 @@ export class PlaybackEngine {
     const item = this.queue[this.currentIndex];
     const url = item.src;
     const buffer = this.buffers.get(url);
+
+    if (this.dummyAudio && this.dummyAudio.paused) {
+      this.dummyAudio.play().catch(err => console.warn('Failed to play dummy audio on resume:', err));
+    }
 
     if (buffer) {
       // If pausedOffset is beyond duration, reset it
@@ -324,6 +351,9 @@ export class PlaybackEngine {
 
   public destroy(): void {
     this.stopCurrentNode();
+    if (this.dummyAudio) {
+      this.dummyAudio.pause();
+    }
     if (this.audioContext) {
       this.audioContext.close().catch(() => {});
     }

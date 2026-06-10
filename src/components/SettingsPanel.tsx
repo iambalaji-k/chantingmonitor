@@ -21,6 +21,26 @@ export const SettingsPanel: React.FC = () => {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
+  
+  const [permissionStatus, setPermissionStatus] = useState<string>(
+    'Notification' in window ? Notification.permission : 'unsupported'
+  );
+
+  const handleRequestPermission = async () => {
+    if ('Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setPermissionStatus(res);
+        if (res === 'granted') {
+          await setNotificationEnabled(true);
+        } else {
+          await setNotificationEnabled(false);
+        }
+      } catch (err) {
+        console.warn('Failed to request notification permission:', err);
+      }
+    }
+  };
 
   const handleGoalPreset = (val: number) => {
     setGoal(val);
@@ -151,23 +171,59 @@ export const SettingsPanel: React.FC = () => {
         <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)' }} />
 
         {/* Lock-Screen Progress Bar Toggle */}
-        <div className="settings-row">
-          <div className="settings-info" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
-            <Bell size={18} strokeWidth={1.5} color="var(--accent-saffron)" />
-            <div className="settings-info">
-              <span className="settings-title">Lock-Screen Progress Bar</span>
-              <span className="settings-desc">Show notification with round, bead, and play controls</span>
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <div className="settings-info" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
+              <Bell size={18} strokeWidth={1.5} color="var(--accent-saffron)" />
+              <div className="settings-info">
+                <span className="settings-title">Lock-Screen Progress Bar</span>
+                <span className="settings-desc">Show notification with round, bead, and play controls</span>
+              </div>
             </div>
+            
+            <label className="switch-control">
+              <input
+                type="checkbox"
+                checked={notificationEnabled}
+                onChange={(e) => setNotificationEnabled(e.target.checked)}
+              />
+              <span className="switch-slider"></span>
+            </label>
           </div>
-          
-          <label className="switch-control">
-            <input
-              type="checkbox"
-              checked={notificationEnabled}
-              onChange={(e) => setNotificationEnabled(e.target.checked)}
-            />
-            <span className="switch-slider"></span>
-          </label>
+
+          {notificationEnabled && (
+            <div style={{ marginTop: '4px', fontSize: '11px', paddingLeft: '28px', lineHeight: '1.4' }}>
+              {permissionStatus === 'unsupported' && (
+                <span style={{ color: '#e74c3c', fontWeight: '500' }}>
+                  ⚠️ Notifications are not supported (origin must be localhost port forwarding or HTTPS).
+                </span>
+              )}
+              {permissionStatus === 'denied' && (
+                <span style={{ color: '#e74c3c', fontWeight: '500' }}>
+                  ❌ Notifications blocked. Reset site settings in Brave to enable.
+                </span>
+              )}
+              {permissionStatus === 'default' && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Permission not yet requested. Tap below to trigger popup:
+                  </span>
+                  <button 
+                    className="btn-action-primary" 
+                    style={{ padding: '6px 12px', fontSize: '11px', width: 'auto', marginTop: '4px' }}
+                    onClick={handleRequestPermission}
+                  >
+                    Request Notification Permission
+                  </button>
+                </div>
+              )}
+              {permissionStatus === 'granted' && (
+                <span style={{ color: '#2ecc71', fontWeight: '600' }}>
+                  ✓ Notification permission granted. Lock-screen progress is active.
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)' }} />

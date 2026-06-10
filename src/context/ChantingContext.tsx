@@ -329,7 +329,12 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (Notification.permission !== 'granted') return;
 
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const swReady = navigator.serviceWorker.ready;
+      const timeoutPromise = new Promise<ServiceWorkerRegistration>((_, reject) => 
+        setTimeout(() => reject(new Error('Service Worker ready timeout')), 2000)
+      );
+      
+      const reg = await Promise.race([swReady, timeoutPromise]);
       
       let bodyText = `Round: ${rounds} • Bead: ${bead}/108`;
       if (phase === 'pranam1') {
@@ -409,22 +414,6 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [isPlaying, currentPhase, currentBead, roundCount, notificationEnabled, isLoading]);
 
-  // Prompt for notification permission if default but enabled in settings
-  useEffect(() => {
-    const checkPermission = async () => {
-      if (notificationEnabled && 'Notification' in window && Notification.permission === 'default') {
-        try {
-          await Notification.requestPermission();
-        } catch (e) {
-          console.warn('Failed to request notification permission:', e);
-        }
-      }
-    };
-    if (!isLoading) {
-      checkPermission();
-    }
-  }, [notificationEnabled, isLoading]);
-
   // Close notification on unmount/cleanup
   useEffect(() => {
     return () => {
@@ -433,8 +422,17 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   // Actions
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (!playbackEngineRef.current) return;
+
+    if (!isPlaying && notificationEnabled && 'Notification' in window && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.warn('Failed to request notification permission on togglePlay gesture:', e);
+      }
+    }
+
     if (isPlaying) {
       playbackEngineRef.current.pause();
     } else {
@@ -448,7 +446,14 @@ export const ChantingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const play = () => {
+  const play = async () => {
+    if (notificationEnabled && 'Notification' in window && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.warn('Failed to request notification permission on play gesture:', e);
+      }
+    }
     if (playbackEngineRef.current) {
       playbackEngineRef.current.resume();
     }
