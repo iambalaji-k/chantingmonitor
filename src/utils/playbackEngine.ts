@@ -14,7 +14,7 @@ export class PlaybackEngine {
   private pausedOffset: number = 0;
   private startTime: number = 0;
   private dummyAudio: HTMLAudioElement | null = null;
-  private mediaStreamDest: MediaStreamAudioDestinationNode | null = null;
+  private silentSrc: string = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
   
   private queue: QueueItem[] = [];
   private currentIndex: number = 0;
@@ -34,16 +34,15 @@ export class PlaybackEngine {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioContextClass();
       
-      // Create a MediaStream destination
-      this.mediaStreamDest = this.audioContext.createMediaStreamDestination();
-      
-      // Route the MediaStream to an HTMLAudioElement
+      // Initialize dummy audio with silent WAV to keep browser alive in background
       this.dummyAudio = new Audio();
       this.dummyAudio.crossOrigin = 'anonymous';
-      this.dummyAudio.srcObject = this.mediaStreamDest.stream;
+      this.dummyAudio.src = this.silentSrc;
+      this.dummyAudio.loop = true;
       this.dummyAudio.preload = 'auto';
+      this.dummyAudio.volume = 0.01;
     } catch (e) {
-      console.warn('Web Audio API / MediaStream not supported:', e);
+      console.warn('Web Audio API not supported:', e);
     }
   }
 
@@ -156,11 +155,9 @@ export class PlaybackEngine {
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
-    if (this.mediaStreamDest) {
-      source.connect(this.mediaStreamDest);
-    } else {
-      source.connect(this.audioContext.destination);
-    }
+    
+    // Connect Web Audio directly to speakers
+    source.connect(this.audioContext.destination);
 
     this.currentSourceNode = source;
     this.pausedOffset = offset;
@@ -176,6 +173,7 @@ export class PlaybackEngine {
     this.isPlaying = true;
     this.isUserPaused = false;
     
+    // Play the silent dummy audio in a loop to keep the browser process/JS VM alive
     if (this.dummyAudio && this.dummyAudio.paused) {
       this.dummyAudio.play().catch(err => console.warn('Failed to play dummy audio:', err));
     }
@@ -339,12 +337,24 @@ export class PlaybackEngine {
     const self = this;
     return {
       get paused() {
-        return self.audioContext ? self.audioContext.state === 'suspended' : true;
+        return self.dummyAudio ? self.dummyAudio.paused : true;
       },
       set currentTime(val: number) {
         if (val === 0) {
           self.pausedOffset = 0;
         }
+        if (self.dummyAudio) {
+          self.dummyAudio.currentTime = val;
+        }
+      },
+      get currentTime() {
+        return self.dummyAudio ? self.dummyAudio.currentTime : 0;
+      },
+      play() {
+        return self.dummyAudio ? self.dummyAudio.play() : Promise.resolve();
+      },
+      pause() {
+        if (self.dummyAudio) self.dummyAudio.pause();
       }
     };
   }
